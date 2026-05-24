@@ -48,7 +48,6 @@ public class AdminDashboard extends Application {
 
         // --- Save Question ---
         saveButton.setOnAction(e -> {
-
             String question = questionField.getText().trim();
             String marksText = marksField.getText().trim();
 
@@ -61,16 +60,34 @@ public class AdminDashboard extends Application {
                 int marks = Integer.parseInt(marksText);
                 Question q = new Question(question, marks);
 
+                // Save question
                 BufferedWriter writer =
-                        new BufferedWriter(
-                                new FileWriter("questions.txt", true)
-                        );
-
+                        new BufferedWriter(new FileWriter("questions.txt", true));
                 writer.write(q.toString());
                 writer.newLine();
                 writer.close();
 
-                status.setText("Question saved!");
+                // ✅ Recalculate and save total marks to exam_total.txt
+                int total = 0;
+                BufferedReader reader =
+                        new BufferedReader(new FileReader("questions.txt"));
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    if (!line.trim().isEmpty()) {
+                        String[] parts = line.split("\\|");
+                        if (parts.length >= 2) {
+                            total += Integer.parseInt(parts[1].trim());
+                        }
+                    }
+                }
+                reader.close();
+
+                BufferedWriter totalWriter =
+                        new BufferedWriter(new FileWriter("exam_total.txt", false));
+                totalWriter.write(String.valueOf(total));
+                totalWriter.close();
+
+                status.setText("Question saved! Total marks: " + total);
                 questionField.clear();
                 marksField.clear();
 
@@ -125,6 +142,21 @@ public class AdminDashboard extends Application {
                 status.setText("File error.");
             }
         });
+        Button viewSubButton = new Button("Grade Submissions");
+        viewSubButton.setStyle(
+                "-fx-background-color: #FF9800;"
+                        + "-fx-text-fill: white;"
+                        + "-fx-font-weight: bold;"
+                        + "-fx-font-size: 13px;"
+        );
+
+        viewSubButton.setOnAction(e -> {
+            try {
+                new ViewSubmissionUI().start(new Stage());
+            } catch (Exception ex) {
+                ex.printStackTrace();
+            }
+        });
 
         HBox timeRow = new HBox(10, startTimeField, endTimeField);
 
@@ -142,6 +174,7 @@ public class AdminDashboard extends Application {
                 scheduleLabel,
                 timeRow,
                 scheduleButton,
+                viewSubButton,
                 status
         );
 
