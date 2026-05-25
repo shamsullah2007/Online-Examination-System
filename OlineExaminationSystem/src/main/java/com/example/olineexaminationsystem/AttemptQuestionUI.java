@@ -39,7 +39,7 @@ public class AttemptQuestionUI extends Application {
             String line;
             while ((line = reader.readLine()) != null) {
                 if (!line.trim().isEmpty()) {
-                    questions.add(line.split(",")[0]);
+                    questions.add(line.split("\\|")[0].trim()); // ✅ fixed split
                 }
             }
             reader.close();
@@ -54,7 +54,6 @@ public class AttemptQuestionUI extends Application {
         try {
             BufferedReader reader =
                     new BufferedReader(new FileReader("exam_config.txt"));
-
             String line = reader.readLine();
             reader.close();
 
@@ -70,14 +69,24 @@ public class AttemptQuestionUI extends Application {
         }
 
         // ─── State ────────────────────────────────────────────────
-        final int[]     currentIndex    = {0};
+        final int[]     currentIndex     = {0};
         final String[]  uploadedFilePath = {""};
+        final boolean[] examEnded        = {false}; // ✅ guard flag
 
         // ─── UI Components ────────────────────────────────────────
-        Label timerDisplay = new Label("Loading exam schedule...");
+        Label timerDisplay = new Label();
         timerDisplay.setStyle(
                 "-fx-font-size: 16px; -fx-font-weight: bold; -fx-text-fill: green;"
         );
+
+        // Show schedule info right away
+        if (startTime[0] != null && endTime[0] != null) {
+            timerDisplay.setText(
+                    "Exam Window:  " + startTime[0] + "  →  " + endTime[0]
+            );
+        } else {
+            timerDisplay.setText("No exam scheduled.");
+        }
 
         Label questionCounter = new Label();
         Label questionLabel   = new Label("Press Start to begin.");
@@ -85,10 +94,10 @@ public class AttemptQuestionUI extends Application {
 
         TextArea answerArea = new TextArea();
         answerArea.setPromptText("Write your answer here...");
-        answerArea.setEditable(false);
+        answerArea.setEditable(false);  // locked until Start
 
         Button uploadButton = new Button("Upload PDF/Image");
-        uploadButton.setDisable(true);
+        uploadButton.setDisable(true);  // locked until Start
 
         Label fileLabel = new Label("No File Selected");
 
@@ -102,7 +111,9 @@ public class AttemptQuestionUI extends Application {
         submitButton.setDisable(true);
 
         startButton.setStyle(
-                "-fx-font-size: 14px; -fx-background-color: #4CAF50; -fx-text-fill: white;"
+                "-fx-font-size: 14px;"
+                        + "-fx-background-color: #4CAF50;"
+                        + "-fx-text-fill: white;"
         );
 
         Label status = new Label();
@@ -126,12 +137,16 @@ public class AttemptQuestionUI extends Application {
             nextButton.setDisable(idx == questions.size() - 1);
         };
 
-        // ─── Lock everything and clear questions.txt ──────────────
+        // ─── Exam end: only called by TIMER, never by button ─────
         Runnable onExamEnd = () -> Platform.runLater(() -> {
+
+            // ✅ Guard: run only once no matter how many times triggered
+            if (examEnded[0]) return;
+            examEnded[0] = true;
 
             if (scheduleTimer != null) scheduleTimer.cancel();
 
-            // ✅ Clear questions.txt at exam end time
+            // ✅ Clear questions.txt only here, triggered by real end time
             try {
                 new FileWriter("questions.txt", false).close();
             } catch (IOException ex) {
@@ -146,9 +161,11 @@ public class AttemptQuestionUI extends Application {
             startButton.setDisable(true);
 
             timerDisplay.setStyle(
-                    "-fx-font-size: 16px; -fx-font-weight: bold; -fx-text-fill: red;"
+                    "-fx-font-size: 16px;"
+                            + "-fx-font-weight: bold;"
+                            + "-fx-text-fill: red;"
             );
-            timerDisplay.setText("Exam ended. Questions cleared.");
+            timerDisplay.setText("⏰ Exam ended. Questions cleared.");
             questionLabel.setText("The exam window has closed.");
             status.setText("Exam over. Submitted answers are saved.");
         });
@@ -158,7 +175,7 @@ public class AttemptQuestionUI extends Application {
 
             LocalTime now = LocalTime.now();
 
-            // Before exam window
+            // ✅ Before window: just show message, do nothing else
             if (startTime[0] != null && now.isBefore(startTime[0])) {
                 status.setText(
                         "Exam hasn't started yet. Starts at " + startTime[0]
@@ -166,11 +183,12 @@ public class AttemptQuestionUI extends Application {
                 return;
             }
 
-            // After exam window
+            // ✅ After window: just show message, do NOT call onExamEnd
             if (endTime[0] != null && now.isAfter(endTime[0])) {
-                status.setText("Exam window has already closed.");
-                onExamEnd.run();
-                return;
+                status.setText(
+                        "Exam window already closed at " + endTime[0]
+                );
+                return; // ← just return, questions.txt stays safe
             }
 
             if (questions.isEmpty()) {
@@ -178,7 +196,7 @@ public class AttemptQuestionUI extends Application {
                 return;
             }
 
-            // ✅ Unlock everything
+            // ── Unlock everything ─────────────────────────────────
             answerArea.setEditable(true);
             uploadButton.setDisable(false);
             submitButton.setDisable(false);
@@ -186,7 +204,7 @@ public class AttemptQuestionUI extends Application {
 
             updateQuestion.run();
 
-            // ─── Start countdown ticker (every second) ────────────
+            // ── Start countdown ticker every second ───────────────
             scheduleTimer = new Timer();
 
             scheduleTimer.scheduleAtFixedRate(new TimerTask() {
@@ -194,10 +212,17 @@ public class AttemptQuestionUI extends Application {
                 @Override
                 public void run() {
 
-                    LocalTime now = LocalTime.now();
+                    // ✅ Stop ticking if exam already ended
+                    if (examEnded[0]) {
+                        scheduleTimer.cancel();
+                        return;
+                    }
 
-                    // Check if exam window has ended
-                    if (endTime[0] != null && !now.isBefore(endTime[0])) {
+                    LocalTime current = LocalTime.now();
+
+                    // ✅ Only onExamEnd triggers the file clear
+                    if (endTime[0] != null
+                            && !current.isBefore(endTime[0])) {
                         onExamEnd.run();
                         return;
                     }
@@ -207,7 +232,7 @@ public class AttemptQuestionUI extends Application {
 
                         long secondsLeft =
                                 java.time.Duration
-                                        .between(now, endTime[0])
+                                        .between(current, endTime[0])
                                         .getSeconds();
 
                         Platform.runLater(() -> {
@@ -216,11 +241,12 @@ public class AttemptQuestionUI extends Application {
                                     "Time Remaining: " + formatTime(secondsLeft)
                             );
 
-                            // Warning: under 1 minute
+                            // Warning colour under 1 minute
                             if (secondsLeft <= 60) {
                                 timerDisplay.setStyle(
-                                        "-fx-font-size: 16px; -fx-font-weight: bold;"
-                                                + " -fx-text-fill: red;"
+                                        "-fx-font-size: 16px;"
+                                                + "-fx-font-weight: bold;"
+                                                + "-fx-text-fill: red;"
                                 );
                             }
                         });
@@ -229,15 +255,6 @@ public class AttemptQuestionUI extends Application {
 
             }, 0, 1000);
         });
-
-        // ─── Show schedule info before exam starts ────────────────
-        if (startTime[0] != null && endTime[0] != null) {
-            timerDisplay.setText(
-                    "Exam: " + startTime[0] + " → " + endTime[0]
-            );
-        } else {
-            timerDisplay.setText("No exam scheduled.");
-        }
 
         // ─── Navigation ───────────────────────────────────────────
         prevButton.setOnAction(e -> {
@@ -287,7 +304,7 @@ public class AttemptQuestionUI extends Application {
             status.setText("✔ Submitted Q" + (currentIndex[0] + 1));
         });
 
-        // Cancel timer on window close
+        // ─── Cancel timer on window close ─────────────────────────
         stage.setOnCloseRequest(e -> {
             if (scheduleTimer != null) scheduleTimer.cancel();
         });
